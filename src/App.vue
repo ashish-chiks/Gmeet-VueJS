@@ -52,8 +52,8 @@
 <script>
 import uniqid from "uniqid";
 
-const CLIENT_ID = "YOUR_CLIENT_ID"
-const API_KEY = "YOUR_API_KEY"
+const CLIENT_ID = "YOUR_CLIENT_ID";
+const API_KEY = "YOUR_API_KEY";
 
 // Discovery doc URL for APIs used by the quickstart
 const DISCOVERY_DOC =
@@ -86,7 +86,6 @@ export default {
   },
 
   created() {
-    console.log(API_KEY, CLIENT_ID)
     this.loadGoogleApi("https://apis.google.com/js/api.js")
       .then(() => {
         this.gapi = window.gapi;
@@ -171,7 +170,6 @@ export default {
 
     handleSignoutClick() {
       const token = this.gapi.client.getToken();
-      console.log(token);
       if (token !== null) {
         this.google.accounts.oauth2.revoke(token.access_token);
         this.gapi.client.setToken("");
@@ -181,13 +179,53 @@ export default {
       }
     },
 
-    calculateFinalTime(date, time, duration) {
+    getFormattedDate(d) {
+      return {
+        date: d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate(),
+        time: d.getHours() + ":" + d.getMinutes(),
+      };
+    },
+
+    getSlicedDate(date) {
+      const res = [];
+      date.split("-").forEach((x) => {
+        res.push(parseInt(x));
+      });
+      return res;
+    },
+
+    getSlicedTime(time) {
+      const res = [];
+      time.split(":").forEach((x) => {
+        res.push(parseInt(x));
+      });
+      return res;
+    },
+
+    calculateDate(date, time) {
+      const sDate = this.getSlicedDate(date);
+      const sTime = this.getSlicedTime(time);
       const d = new Date(
-        parseInt(date.slice(0, 4)),
-        parseInt(date.slice(5, 7)),
-        parseInt(date.slice(8)),
-        parseInt(time.slice(0, 2)),
-        parseInt(time.slice(3)),
+        sDate[0],
+        sDate[1],
+        sDate[2],
+        sTime[0],
+        sTime[1],
+        0,
+        0
+      );
+      return d;
+    },
+
+    calculateFinalTime(date, time, duration) {
+      const sDate = this.getSlicedDate(date);
+      const sTime = this.getSlicedTime(time);
+      const d = new Date(
+        sDate[0],
+        sDate[1],
+        sDate[2],
+        sTime[0],
+        sTime[1],
         0,
         0
       );
@@ -200,40 +238,25 @@ export default {
     },
 
     calculateDays(initialDate, finalDate) {
-      const date1 = new Date(
-        parseInt(initialDate.slice(0, 4)),
-        parseInt(initialDate.slice(5, 7)),
-        parseInt(initialDate.slice(8)),
-        0,
-        0,
-        0,
-        0
-      );
-      const date2 = new Date(
-        parseInt(finalDate.slice(0, 4)),
-        parseInt(finalDate.slice(5, 7)),
-        parseInt(finalDate.slice(8)),
-        0,
-        0,
-        0,
-        0
-      );
+      const sDate1 = this.getSlicedDate(initialDate);
+      const date1 = new Date(sDate1[0], sDate1[1], sDate1[2], 0, 0, 0, 0);
+      const sDate2 = this.getSlicedDate(finalDate);
+      const date2 = new Date(sDate2[0], sDate2[1], sDate2[2], 0, 0, 0, 0);
       const difference = date2.getTime() - date1.getTime();
       const TotalDays = Math.ceil(difference / (1000 * 3600 * 24));
       return TotalDays;
     },
 
-    async insertEvent() {
+    async createMeet({ startDate, startTime, finalDate, finalTime }) {
       let response;
-      this.calculateFinalTime(this.startDate, this.startTime, this.duration);
       const event = {
         summary: this.title,
         end: {
-          dateTime: `${this.finalDate}T${this.finalTime}:00+05:30`,
+          dateTime: `${finalDate}T${finalTime}:00+05:30`,
           timeZone: "UTC",
         },
         start: {
-          dateTime: `${this.startDate}T${this.startTime}:00+05:30`,
+          dateTime: `${startDate}T${startTime}:00+05:30`,
           timeZone: "UTC",
         },
         conferenceData: {
@@ -246,23 +269,6 @@ export default {
         },
         guestsCanSeeOtherGuests: this.attendeesVisible,
       };
-
-      if (this.frequency !== "once") {
-        if (this.frequency === "daily")
-          event.recurrence = [
-            `RRULE:FREQ=DAILY;INTERVAL=1;COUNT=${
-              1 + this.calculateDays(this.startDate, this.endDate)
-            }`,
-          ];
-        else
-          event.recurrence = [
-            `RRULE:FREQ=WEEKLY;INTERVAL=1;COUNT=${
-              1 +
-              Math.floor(this.calculateDays(this.startDate, this.endDate) / 7)
-            }`,
-          ];
-      }
-
       if (this.attendees) {
         const attendees = [];
         this.attendees
@@ -270,7 +276,6 @@ export default {
           .forEach((attendee) => attendees.push({ email: attendee }));
         event.attendees = attendees;
       }
-
       try {
         response = await this.gapi.client.calendar.events.insert({
           calendarId: "primary",
@@ -280,6 +285,68 @@ export default {
         console.log(response.result);
       } catch (error) {
         console.log(error);
+      }
+    },
+
+    async insertEvent() {
+      this.calculateFinalTime(this.startDate, this.startTime, this.duration);
+      const starts = [];
+      const ends = [];
+      const formattedStarts = [];
+      const formattedEnds = [];
+      starts.push(this.calculateDate(this.startDate, this.startTime));
+      ends.push(this.calculateDate(this.finalDate, this.finalTime));
+      formattedStarts.push(this.getFormattedDate(starts[0]));
+      formattedEnds.push(this.getFormattedDate(ends[0]));
+
+      let count = 0;
+      if (this.frequency !== "once") {
+        if (this.frequency === "daily") {
+          const factor = 1000 * 3600 * 24;
+          count = this.calculateDays(this.startDate, this.endDate);
+          for (let i = 0; i < count; i++) {
+            const newD1 = new Date(
+              starts[starts.length - 1].getTime() + factor
+            );
+            starts.push(newD1);
+            formattedStarts.push(
+              this.getFormattedDate(starts[starts.length - 1])
+            );
+
+            const newD2 = new Date(ends[ends.length - 1].getTime() + factor);
+            ends.push(newD2);
+            formattedEnds.push(this.getFormattedDate(ends[ends.length - 1]));
+          }
+        } else {
+          count = Math.floor(
+            this.calculateDays(this.startDate, this.endDate) / 7
+          );
+          const factor = 1000 * 3600 * 24 * 7;
+          for (let i = 0; i < count; i++) {
+            const newD1 = new Date(
+              starts[starts.length - 1].getTime() + factor
+            );
+            starts.push(newD1);
+            formattedStarts.push(
+              this.getFormattedDate(starts[starts.length - 1])
+            );
+
+            const newD2 = new Date(ends[ends.length - 1].getTime() + factor);
+            ends.push(newD2);
+            formattedEnds.push(this.getFormattedDate(ends[ends.length - 1]));
+          }
+        }
+      }
+
+      console.log(formattedStarts, formattedEnds);
+
+      for (let i = 0; i < 1 + count; i++) {
+        await this.createMeet({
+          startDate: formattedStarts[i].date,
+          startTime: formattedStarts[i].time,
+          finalDate: formattedEnds[i].date,
+          finalTime: formattedEnds[i].time,
+        });
       }
     },
   },
